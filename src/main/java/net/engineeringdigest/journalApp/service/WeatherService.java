@@ -2,7 +2,10 @@ package net.engineeringdigest.journalApp.service;
 
 import lombok.extern.slf4j.Slf4j;
 import net.engineeringdigest.journalApp.api.response.WeatherResponse;
+import net.engineeringdigest.journalApp.cache.AppCache;
 import net.engineeringdigest.journalApp.config.WeatherApiProperties;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
@@ -19,16 +22,27 @@ public class WeatherService {
 
     private RestTemplate restTemplate;
     private WeatherApiProperties weatherApiProperties;
+    private AppCache appCache;
+    @Autowired
+    private RedisService redisService;
 
-    public WeatherService(RestTemplate restTemplate, WeatherApiProperties weatherApiProperties){
+    public WeatherService(RestTemplate restTemplate, WeatherApiProperties weatherApiProperties,
+                          AppCache appCache){
         this.restTemplate = restTemplate;
         this.weatherApiProperties = weatherApiProperties;
+        this.appCache = appCache;
     }
 
     public WeatherResponse getWeather(String city){
+        WeatherResponse weatherResponse = redisService.get(city, WeatherResponse.class);
+        if(weatherResponse != null){
+            return weatherResponse;
+        }
         UriComponentsBuilder url = UriComponentsBuilder
-                .fromHttpUrl(weatherApiProperties.getUrl())
-                .queryParam("access_key", weatherApiProperties.getKey())
+//                .fromHttpUrl(weatherApiProperties.getUrl()) //Now getting from database
+//                .queryParam("access_key", weatherApiProperties.getKey())//Now getting from database
+                .fromHttpUrl(appCache.APP_CACHE.get("weather_api"))
+                .queryParam("access_key",appCache.APP_CACHE.get("access_key"))
                 .queryParam("query", city);
 
         //Add Headers
@@ -44,6 +58,9 @@ public class WeatherService {
                 throw new RuntimeException("Weather API call failed");
             }
             WeatherResponse body = responseEntity.getBody();
+            if(body != null){
+                redisService.set(city, body, 300L);
+            }
             return body;
         } catch (RestClientException ex) {
             log.error("Error calling Weather API", ex);
